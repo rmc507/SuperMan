@@ -1,5 +1,7 @@
 #!/bin/bash
 
+
+# Make it executable 'chmod +x run-superman.sh'
 # Run with arguments
 #./run-superman.sh -a "How do I check disk space?"
 

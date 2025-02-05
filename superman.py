@@ -3,7 +3,11 @@ import argparse
 import time
 import os
 import sys
-import traceback
+import json
+import subprocess
+import shlex
+import random
+import string
 
 SYSTEM_MESSAGES = {
     'default': '''
@@ -50,9 +54,245 @@ SYSTEM_MESSAGES = {
     The user needs help with linux, so please solve the problem with a focus on that.
     Do not output any warnings or notes.
     Your output should be well formatted, with bullet points and headers.
-    '''
+    ''',
+    'exec': '''
+    You are a command execution assistant. Only execute commands that are safe.
+    Do not execute commands that will remove files.
+    When given a description of what needs to be done,
+    you should respond with a JSON object containing the command to execute. Format your response as:
+    {"command": "the_command_to_execute"}
+    Only respond with the JSON object, no other text.
+    Do not execute any code that would remove files or have the potential to loop forever.'''
 }
 
+def generate_confirmation_code() -> str:
+    """Generate a random 5-character string of letters and numbers"""
+    characters = string.ascii_letters + string.digits
+    return ''.join(random.choice(characters) for _ in range(5))
+
+
+
+def is_command_safe(command: str) -> tuple[bool, str, bool]:
+    """
+    Check if a command is safe to execute.
+    Returns a tuple of (is_safe, reason, requires_confirmation)
+    """
+    # Split command into parts for better analysis
+    cmd_parts = shlex.split(command.lower())
+    if not cmd_parts:
+        return False, "Empty command", False
+
+    base_cmd = cmd_parts[0]
+
+    # [BLACKLIST dictionary should be here]
+    # The existing comprehensive BLACKLIST dictionary from your code would go here
+    BLACKLIST = {
+        # File Operations
+        'rm': 'File deletion command is not allowed',
+        'mv': 'Moving files is not allowed',
+        'cp': 'Copying files is not allowed',
+        'shred': 'File shredding is not allowed',
+        'srm': 'Secure file deletion is not allowed',
+        'unlink': 'File unlinking is not allowed',
+        'rename': 'File renaming is not allowed',
+
+        # System Administration
+        'sudo': 'Elevated privileges are not allowed',
+        'su': 'Switching users is not allowed',
+        'chroot': 'Changing root is not allowed',
+        'passwd': 'Password changes are not allowed',
+        'mkfs': 'Filesystem formatting is not allowed',
+        'fdisk': 'Disk partitioning is not allowed',
+        'parted': 'Disk partitioning is not allowed',
+        'mount': 'Mounting filesystems is not allowed',
+        'umount': 'Unmounting filesystems is not allowed',
+        'systemctl': 'System control is not allowed',
+        'service': 'Service management is not allowed',
+        'init': 'Init commands are not allowed',
+        'systemd': 'Systemd commands are not allowed',
+
+        # Process Management
+        'kill': 'Process termination is not allowed',
+        'pkill': 'Process killing is not allowed',
+        'killall': 'Process killing is not allowed',
+        'renice': 'Process priority modification is not allowed',
+        'nice': 'Process priority modification is not allowed',
+
+        # System Control
+        'shutdown': 'System shutdown is not allowed',
+        'reboot': 'System reboot is not allowed',
+        'poweroff': 'System power off is not allowed',
+        'halt': 'System halt is not allowed',
+
+        # Network Operations
+        'wget': 'Downloading files is not allowed',
+        'curl': 'Downloading files is not allowed',
+        'nc': 'Netcat operations are not allowed',
+        'netcat': 'Netcat operations are not allowed',
+        'ssh': 'SSH operations are not allowed',
+        'ftp': 'FTP operations are not allowed',
+        'sftp': 'SFTP operations are not allowed',
+        'iptables': 'Firewall modifications are not allowed',
+        'ufw': 'Firewall modifications are not allowed',
+        'tcpdump': 'Network packet capture is not allowed',
+
+        # File Permissions and Ownership
+        'chmod': 'Changing file permissions is not allowed',
+        'chown': 'Changing file ownership is not allowed',
+        'chgrp': 'Changing group ownership is not allowed',
+        'umask': 'Changing file creation mask is not allowed',
+
+        # Package Management
+        'apt': 'Package management is not allowed',
+        'apt-get': 'Package management is not allowed',
+        'dpkg': 'Package management is not allowed',
+        'yum': 'Package management is not allowed',
+        'dnf': 'Package management is not allowed',
+        'pacman': 'Package management is not allowed',
+        'pip': 'Python package management is not allowed',
+        'npm': 'Node.js package management is not allowed',
+
+        # Dangerous Operations
+        'dd': 'Direct disk operations are not allowed',
+        'mkswap': 'Swap creation is not allowed',
+        'swapoff': 'Swap manipulation is not allowed',
+        'swapon': 'Swap manipulation is not allowed',
+        'losetup': 'Loop device setup is not allowed',
+        'blockdev': 'Block device operations are not allowed',
+
+        # Shell Operations
+        'eval': 'Eval commands are not allowed',
+        'exec': 'Exec commands are not allowed',
+        'source': 'Sourcing files is not allowed',
+        '.': 'Sourcing files is not allowed',
+        'alias': 'Creating aliases is not allowed',
+
+        # User Management
+        'useradd': 'User creation is not allowed',
+        'userdel': 'User deletion is not allowed',
+        'usermod': 'User modification is not allowed',
+        'groupadd': 'Group creation is not allowed',
+        'groupdel': 'Group deletion is not allowed',
+        'groupmod': 'Group modification is not allowed',
+
+        # Dangerous Patterns
+        ':(){': 'Fork bombs are not allowed',
+        '> /': 'Writing to root directory is not allowed',
+        '> /dev': 'Writing to devices is not allowed',
+        '| bash': 'Piping to bash is not allowed',
+        '| sh': 'Piping to shell is not allowed',
+        '>/dev/null': 'Output redirection to null is not allowed',
+        '2>/dev/null': 'Error redirection to null is not allowed',
+        '>>/dev/null': 'Output appending to null is not allowed',
+        '| perl': 'Piping to perl is not allowed',
+        '| python': 'Piping to python is not allowed',
+        '| ruby': 'Piping to ruby is not allowed',
+        '$(': 'Command substitution is not allowed',
+        '`': 'Backtick command substitution is not allowed',
+        '&&': 'Command chaining is not allowed',
+        '||': 'Command chaining is not allowed',
+        ';': 'Command chaining is not allowed',
+        '|': 'Pipes are not allowed',
+
+        # System Information Leakage Prevention
+        'uname': 'System information disclosure is not allowed',
+        'hostname': 'System information disclosure is not allowed',
+        'id': 'User information disclosure is not allowed',
+        'who': 'User information disclosure is not allowed',
+        'w': 'User information disclosure is not allowed',
+        'last': 'Login information disclosure is not allowed',
+
+        # File Creation/Modification
+        'touch': 'File creation is not allowed',
+        'truncate': 'File truncation is not allowed',
+        'mknod': 'Device file creation is not allowed',
+        'mkfifo': 'FIFO creation is not allowed',
+
+        # Compression/Archive Operations
+        'tar': 'Archive operations are not allowed',
+        'gzip': 'Compression operations are not allowed',
+        'gunzip': 'Decompression operations are not allowed',
+        'zip': 'Compression operations are not allowed',
+        'unzip': 'Decompression operations are not allowed',
+
+        # Editor Access
+        'vi': 'Text editor access is not allowed',
+        'vim': 'Text editor access is not allowed',
+        'nano': 'Text editor access is not allowed',
+        'emacs': 'Text editor access is not allowed',
+        'ed': 'Text editor access is not allowed',
+    }
+    # Check for suspicious patterns first
+    dangerous_patterns = [
+        ('$(', 'Command substitution is not allowed'),
+        ('`', 'Backtick command substitution is not allowed'),
+        ('&&', 'Command chaining is not allowed'),
+        ('||', 'Command chaining is not allowed'),
+        (';', 'Command chaining is not allowed'),
+        ('| ', 'Piping is not allowed'),
+        ('> /', 'Writing to root directory is not allowed'),
+        ('> /dev', 'Writing to devices is not allowed'),
+    ]
+
+    for pattern, reason in dangerous_patterns:
+        if pattern in command:
+            return False, reason, False
+
+    # Check if command is in blacklist
+    for forbidden_cmd, reason in BLACKLIST.items():
+        if forbidden_cmd in command.lower():
+            return True, reason, True  # Command is allowed but requires confirmation
+
+    # Check for direct path execution
+    if '/' in base_cmd:
+        return False, "Direct path execution is not allowed", False
+
+    return True, "Command is safe", False
+
+def execute_command(command: str) -> tuple[bool, str]:
+    """
+    Safely execute a command and return the result
+    Returns a tuple of (success, output/error_message)
+    """
+    # First check if command is safe
+    is_safe, reason, requires_confirmation = is_command_safe(command)
+
+    if not is_safe:
+        return False, f"Command rejected: {reason}"
+
+    try:
+        if requires_confirmation:
+            # Generate and display confirmation code
+            confirmation_code = generate_confirmation_code()
+            print(f"\n⚠️  WARNING: This command is potentially dangerous!")
+            print(f"Reason: {reason}")
+            print(f"\nTo proceed, please type this confirmation code: {confirmation_code}")
+
+            user_input = input("Confirmation code: ")
+
+            if user_input.strip() != confirmation_code:
+                return False, "Confirmation code incorrect. Command execution cancelled."
+
+            print("\nConfirmation code correct. Executing command...")
+
+        # Execute command in a controlled environment
+        result = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=10  # 10 second timeout
+        )
+
+        if result.returncode == 0:
+            return True, result.stdout
+        else:
+            return False, f"Command failed: {result.stderr}"
+
+    except subprocess.TimeoutExpired:
+        return False, "Command timed out after 10 seconds"
+    except Exception as e:
+        return False, f"Error executing command: {str(e)}"
 
 def get_recent_commands(num_commands):
     """Get the specified number of most recent shell commands."""
@@ -131,13 +371,12 @@ def main():
     parser.add_argument('-f', '--find', nargs='?', const='', help="Find the correct command to use for your problem")
     parser.add_argument('-t', '--trouble', type=int, nargs='?', const=10, help='Analyze the last N commands for troubleshooting (default: 10)')
     parser.add_argument('-p', '--plan', nargs='?', const='', help='Have the model make a plan to acomplish your goal')
+    parser.add_argument('-e', '--exec', help='Execute a command based on the description provided')
 
     args = parser.parse_args()
     suman = SuperMan()
 
-
     command = ' '.join(args.command) if args.command else ""
-
 
     if args.trouble:
         recent_commands = get_recent_commands(args.trouble)
@@ -150,40 +389,64 @@ def main():
         else:
             prompt = f"Please analyze these recent commands:\n{command_history}"
         suman.set_mode('trouble')
+        suman.generate_response(prompt)
+    elif args.exec:
+            suman.set_mode('exec')
+            response = suman.generate_response(f"Create a command that would: {args.exec}")
+            try:
+                # Extract the command from the response
+                import re
+                # Try to find JSON-like structure in the response
+                json_match = re.search(r'\{.*\}', response)
+                if json_match:
+                    command_data = json.loads(json_match.group())
+                    if "command" in command_data:
+                        command = command_data["command"]
+                        print(f"\nProposed command: {command}")
 
-    elif args.summarize:
-        suman.set_mode('summarize')
-        if args.assistant:
-            prompt = f"{command}. Additional request: {args.assistant}"
-        else:
-            prompt = command
-    elif args.shortsum:
-        suman.set_mode('shortsum')
-        if args.assistant:
-            prompt = f"{command}. Additional request: {args.assistant}"
-        else:
-            prompt = command
-    elif args.cheat:
-        suman.set_mode('cheatsheet')
-        if args.assistant:
-            prompt = f"{command}. Additional request: {args.assistant}"
-        else:
-            prompt = command
-    elif args.assistant:
+                        # Ask for confirmation
+                        confirm = input("\nDo you want to execute this command? (y/N): ").lower()
+                        if confirm == 'y':
+                            success, output = execute_command(command)
+                            if success:
+                                print("\nCommand executed successfully!")
+                                print("Output:")
+                                print(output)
+                            else:
+                                print("\nCommand execution failed:")
+                                print(output)
+                        else:
+                            print("\nCommand execution cancelled.")
+                        return
+                print("\nCouldn't parse response as a command.\n")
+            except (json.JSONDecodeError, AttributeError):
+                print("\nFailed to parse response as JSON.\n")
+    else:
+        # Set prompt based on arguments
+        if args.summarize:
+            suman.set_mode('summarize')
+            prompt = f"{command}. Additional request: {args.assistant}" if args.assistant else command
+        elif args.shortsum:
+            suman.set_mode('shortsum')
+            prompt = f"{command}. Additional request: {args.assistant}" if args.assistant else command
+        elif args.cheat:
+            suman.set_mode('cheatsheet')
+            prompt = f"{command}. Additional request: {args.assistant}" if args.assistant else command
+        elif args.assistant:
             suman.set_mode('assistant')
             prompt = args.assistant if args.assistant else command
-    elif args.find:
-        suman.set_mode('find')
-        prompt = args.find
-    elif args.plan:
-        suman.set_mode('plan')
-        prompt = args.plan
-    else:
-        prompt = command
+        elif args.find:
+            suman.set_mode('find')
+            prompt = args.find
+        elif args.plan:
+            suman.set_mode('plan')
+            prompt = args.plan
+        else:
+            prompt = command
 
-    # Generate response
-    suman.generate_response(prompt)
-    print('\n')
+        # Generate response
+        suman.generate_response(prompt)
+        print('\n')
 
 if __name__ == '__main__':
     main()
