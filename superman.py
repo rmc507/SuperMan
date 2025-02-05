@@ -170,25 +170,6 @@ def is_command_safe(command: str) -> tuple[bool, str, bool]:
         'groupdel': 'Group deletion is not allowed',
         'groupmod': 'Group modification is not allowed',
 
-        # Dangerous Patterns
-        ':(){': 'Fork bombs are not allowed',
-        '> /': 'Writing to root directory is not allowed',
-        '> /dev': 'Writing to devices is not allowed',
-        '| bash': 'Piping to bash is not allowed',
-        '| sh': 'Piping to shell is not allowed',
-        '>/dev/null': 'Output redirection to null is not allowed',
-        '2>/dev/null': 'Error redirection to null is not allowed',
-        '>>/dev/null': 'Output appending to null is not allowed',
-        '| perl': 'Piping to perl is not allowed',
-        '| python': 'Piping to python is not allowed',
-        '| ruby': 'Piping to ruby is not allowed',
-        '$(': 'Command substitution is not allowed',
-        '`': 'Backtick command substitution is not allowed',
-        '&&': 'Command chaining is not allowed',
-        '||': 'Command chaining is not allowed',
-        ';': 'Command chaining is not allowed',
-        '|': 'Pipes are not allowed',
-
         # System Information Leakage Prevention
         'uname': 'System information disclosure is not allowed',
         'hostname': 'System information disclosure is not allowed',
@@ -216,6 +197,7 @@ def is_command_safe(command: str) -> tuple[bool, str, bool]:
         'nano': 'Text editor access is not allowed',
         'emacs': 'Text editor access is not allowed',
         'ed': 'Text editor access is not allowed',
+        'git': 'Git Access is not allowed.'
     }
     # Check for suspicious patterns first
     dangerous_patterns = [
@@ -231,7 +213,7 @@ def is_command_safe(command: str) -> tuple[bool, str, bool]:
 
     for pattern, reason in dangerous_patterns:
         if pattern in command:
-            return False, reason, False
+            return True, reason, True
 
     # Check if the base command is in blacklist
     if base_cmd in BLACKLIST:
@@ -243,19 +225,17 @@ def is_command_safe(command: str) -> tuple[bool, str, bool]:
 
     # If command passes all checks and isn't blacklisted
     return True, "Command is safe", False
+
 def execute_command(command: str) -> tuple[bool, str]:
     """
-    Execute a command with confirmation only if it's blacklisted
+    Execute a command with confirmation for blacklisted or dangerous patterns
     Returns a tuple of (success, output/error_message)
     """
     is_safe, reason, requires_confirmation = is_command_safe(command)
 
-    if not is_safe:
-        return False, f"Command rejected: {reason}"
-
     try:
-        if requires_confirmation:
-            # Generate and display confirmation code for blacklisted commands
+        if requires_confirmation or not is_safe:  # Changed to handle both cases
+            # Generate and display confirmation code
             confirmation_code = generate_confirmation_code()
             print("\n⚠️  WARNING: This command requires confirmation!")
             print(f"Reason: {reason}")
@@ -268,19 +248,37 @@ def execute_command(command: str) -> tuple[bool, str]:
 
             print("\nConfirmation code correct. Executing command...")
 
-        # Execute command
-        result = subprocess.run(
+        # Execute command with real-time output
+        process = subprocess.Popen(
             command,
             shell=True,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=10
+            bufsize=1,
+            universal_newlines=True
         )
 
-        if result.returncode == 0:
-            return True, result.stdout
+        output = []
+        # Stream stdout in real-time
+        while True:
+            line = process.stdout.readline()
+            if line:
+                print(line, end='', flush=True)
+                output.append(line)
+            if not line and process.poll() is not None:
+                break
+
+        # Get any remaining stderr
+        stderr = process.stderr.read()
+        if stderr:
+            print(stderr, end='', flush=True)
+            output.append(stderr)
+
+        if process.returncode == 0:
+            return True, ''.join(output)
         else:
-            return False, f"Command failed: {result.stderr}"
+            return False, f"Command failed: {''.join(output)}"
 
     except subprocess.TimeoutExpired:
         return False, "Command timed out after 10 seconds"
