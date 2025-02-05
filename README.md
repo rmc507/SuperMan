@@ -15,8 +15,8 @@ SuperMan is a Python-based CLI tool that uses a local LLM (via Ollama) to assist
 ## Prerequisites
 
 - Python 3.7+
-- Ollama installed and running (https://ollama.ai)
-- The required LLM model pulled via Ollama (default: qwen2.5:14b-instruct-q4_1)
+- Ollama installed and running (https://ollama.ai) (or run itnwith docker)
+- The required LLM model pulled via Ollama (default: qwen2.5:14b-instruct-q4_1) I would recoment using and 'Instruct' model if you want to change the model.
 
 ## Installation
 
@@ -70,7 +70,7 @@ Common usage includes ls -la for detailed listings and ls -R for recursive direc
 
 2. Get a brief summary:
 ```bash
-superman --shortsum wget
+superman wget --shortsum
 ```
 Output:
 ```
@@ -79,7 +79,7 @@ wget is a command-line utility for retrieving files using HTTP, HTTPS, and FTP p
 
 3. Generate a command cheatsheet:
 ```bash
-superman -c tar
+superman tar -c
 ```
 Output:
 ```
@@ -143,6 +143,7 @@ superman -t 5
 
 # Docker
 Install docker, then run the run-superman.sh script.
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
