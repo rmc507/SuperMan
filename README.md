@@ -15,8 +15,8 @@ SuperMan is a Python-based CLI tool that uses a local LLM (via Ollama) to assist
 ## Prerequisites
 
 - Python 3.7+
-- Ollama installed and running (https://ollama.ai)
-- The required LLM model pulled via Ollama (default: qwen2.5:14b-instruct-q4_1)
+- Ollama installed and running (https://ollama.ai) (or run itnwith docker)
+- The required LLM model pulled via Ollama (default: qwen2.5:14b-instruct-q4_1) I would recoment using and 'Instruct' model if you want to change the model.
 
 ## Installation
 
