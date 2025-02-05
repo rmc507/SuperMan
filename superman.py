@@ -57,12 +57,10 @@ SYSTEM_MESSAGES = {
     ''',
     'exec': '''
     You are a command execution assistant. Only execute commands that are safe.
-    Do not execute commands that will remove files.
     When given a description of what needs to be done,
     you should respond with a JSON object containing the command to execute. Format your response as:
     {"command": "the_command_to_execute"}
-    Only respond with the JSON object, no other text.
-    Do not execute any code that would remove files or have the potential to loop forever.'''
+    Only respond with the JSON object, no other text.'''
 }
 
 def generate_confirmation_code() -> str:
@@ -83,9 +81,6 @@ def is_command_safe(command: str) -> tuple[bool, str, bool]:
         return False, "Empty command", False
 
     base_cmd = cmd_parts[0]
-
-    # [BLACKLIST dictionary should be here]
-    # The existing comprehensive BLACKLIST dictionary from your code would go here
     BLACKLIST = {
         # File Operations
         'rm': 'File deletion command is not allowed',
@@ -224,37 +219,35 @@ def is_command_safe(command: str) -> tuple[bool, str, bool]:
     }
     # Check for suspicious patterns first
     dangerous_patterns = [
-        ('$(', 'Command substitution is not allowed'),
-        ('`', 'Backtick command substitution is not allowed'),
-        ('&&', 'Command chaining is not allowed'),
-        ('||', 'Command chaining is not allowed'),
-        (';', 'Command chaining is not allowed'),
-        ('| ', 'Piping is not allowed'),
-        ('> /', 'Writing to root directory is not allowed'),
-        ('> /dev', 'Writing to devices is not allowed'),
-    ]
+            ('$(', 'Command substitution is not allowed'),
+            ('`', 'Backtick command substitution is not allowed'),
+            ('&&', 'Command chaining is not allowed'),
+            ('||', 'Command chaining is not allowed'),
+            (';', 'Command chaining is not allowed'),
+            ('| ', 'Piping is not allowed'),
+            ('> /', 'Writing to root directory is not allowed'),
+            ('> /dev', 'Writing to devices is not allowed'),
+        ]
 
     for pattern, reason in dangerous_patterns:
         if pattern in command:
             return False, reason, False
 
-    # Check if command is in blacklist
-    for forbidden_cmd, reason in BLACKLIST.items():
-        if forbidden_cmd in command.lower():
-            return True, reason, True  # Command is allowed but requires confirmation
+    # Check if the base command is in blacklist
+    if base_cmd in BLACKLIST:
+        return True, BLACKLIST[base_cmd], True  # Command is blacklisted, requires confirmation
 
     # Check for direct path execution
     if '/' in base_cmd:
         return False, "Direct path execution is not allowed", False
 
+    # If command passes all checks and isn't blacklisted
     return True, "Command is safe", False
-
 def execute_command(command: str) -> tuple[bool, str]:
     """
-    Safely execute a command and return the result
+    Execute a command with confirmation only if it's blacklisted
     Returns a tuple of (success, output/error_message)
     """
-    # First check if command is safe
     is_safe, reason, requires_confirmation = is_command_safe(command)
 
     if not is_safe:
@@ -262,9 +255,9 @@ def execute_command(command: str) -> tuple[bool, str]:
 
     try:
         if requires_confirmation:
-            # Generate and display confirmation code
+            # Generate and display confirmation code for blacklisted commands
             confirmation_code = generate_confirmation_code()
-            print(f"\n⚠️  WARNING: This command is potentially dangerous!")
+            print("\n⚠️  WARNING: This command requires confirmation!")
             print(f"Reason: {reason}")
             print(f"\nTo proceed, please type this confirmation code: {confirmation_code}")
 
@@ -275,13 +268,13 @@ def execute_command(command: str) -> tuple[bool, str]:
 
             print("\nConfirmation code correct. Executing command...")
 
-        # Execute command in a controlled environment
+        # Execute command
         result = subprocess.run(
             command,
             shell=True,
             capture_output=True,
             text=True,
-            timeout=10  # 10 second timeout
+            timeout=10
         )
 
         if result.returncode == 0:
@@ -402,21 +395,16 @@ def main():
                     command_data = json.loads(json_match.group())
                     if "command" in command_data:
                         command = command_data["command"]
-                        print(f"\nProposed command: {command}")
-
                         # Ask for confirmation
-                        confirm = input("\nDo you want to execute this command? (y/N): ").lower()
-                        if confirm == 'y':
-                            success, output = execute_command(command)
-                            if success:
-                                print("\nCommand executed successfully!")
-                                print("Output:")
-                                print(output)
-                            else:
-                                print("\nCommand execution failed:")
-                                print(output)
+
+                        success, output = execute_command(command)
+                        if success:
+                            print("\nCommand executed successfully!")
+                            print("Output:")
+                            print(output)
                         else:
-                            print("\nCommand execution cancelled.")
+                            print("\nCommand execution failed:")
+                            print(output)
                         return
                 print("\nCouldn't parse response as a command.\n")
             except (json.JSONDecodeError, AttributeError):
