@@ -22,7 +22,7 @@ SuperMan is a Python-based CLI tool that uses a local LLM (via Ollama) to assist
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/superman.git
+git clone https://github.com/rmc507/superman.git
 cd superman
 ```
 
