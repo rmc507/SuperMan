@@ -1,6 +1,6 @@
 # SuperMan CLI Tool
 
-SuperMan is a Python-based CLI tool that uses a local LLM (via Ollama) to assist with system administration tasks and bash command understanding. It provides various modes of operation to help users better understand and work with Linux commands.
+SuperMan is a Python-based CLI tool that uses a local LLM (via Ollama) to assist with system administration tasks and bash command understanding. It provides various modes of operation to help users better understand and work with Linux commands, including a command execution feature.
 
 ## Features
 
@@ -8,15 +8,16 @@ SuperMan is a Python-based CLI tool that uses a local LLM (via Ollama) to assist
 - Command summarization (brief and detailed)
 - Command cheatsheet generation
 - System administration assistance
-- Command troubleshooting
+- Command troubleshooting with history analysis
 - Command discovery
 - Task planning assistance
+- Safe command execution based on natural language descriptions
 
 ## Prerequisites
 
 - Python 3.7+
-- Ollama installed and running (https://ollama.ai) (or run itnwith docker)
-- The required LLM model pulled via Ollama (default: qwen2.5:14b-instruct-q4_1) I would recoment using and 'Instruct' model if you want to change the model.
+- Ollama installed and running (https://ollama.ai)
+- Default LLM model: qwen2.5:14b-instruct-q4_1
 
 ## Installation
 
@@ -47,82 +48,55 @@ echo "alias superman='history | tail -50 > /tmp/superman_current_history && ~/bi
 source ~/.bashrc
 ```
 
-## Configuration
+## Docker Installation
 
-The default model is set to `qwen2.5:14b-instruct-q4_1`. To use a different model, modify the `model_name` parameter in `superman.py`:
+Alternative to local installation, you can run SuperMan in Docker:
 
-```python
-def __init__(self, model_name='your-preferred-model', mode='default'):
+1. Make the script executable:
+```bash
+chmod +x run-superman.sh
+```
+
+2. Run with arguments:
+```bash
+./run-superman.sh -a "How do I check disk space?"
+```
+
+Or run interactively:
+```bash
+./run-superman.sh
 ```
 
 ## Usage Examples
 
-1. Get information about a command:
+1. Get command information:
 ```bash
 superman ls
-```
-Output:
-```
-ls is a fundamental command used to list directory contents. It was first introduced in AT&T UNIX and has been a core utility since then.
-The command can show file permissions, sizes, and modification times with various flags.
-Common usage includes ls -la for detailed listings and ls -R for recursive directory traversal.
 ```
 
 2. Get a brief summary:
 ```bash
 superman wget --shortsum
 ```
-Output:
-```
-wget is a command-line utility for retrieving files using HTTP, HTTPS, and FTP protocols.
-```
 
 3. Generate a command cheatsheet:
 ```bash
 superman tar -c
 ```
-Output:
-```
-TAR COMMAND CHEATSHEET
----------------------
-Common flags:
--c: Create archive
--x: Extract archive
--v: Verbose output
--f: Specify filename
--z: Use gzip compression
 
-Common usage:
-tar -czf archive.tar.gz files/    # Create compressed archive
-tar -xzf archive.tar.gz           # Extract compressed archive
-
-Best practices:
-- Always specify the output file with -f
-- Use -z for .gz compression
-- Test archives after creation
-```
-
-4. Get help with a system administration task:
+4. Get system administration help:
 ```bash
 superman -a "How do I find large files on my system?"
 ```
-Output:
-```
-Here's how to find large files:
 
-• Using find:
-  find / -type f -size +100M -exec ls -lh {} \;
-
-• Using du:
-  du -h / | sort -rh | head -n 20
-
-• Quick solution:
-  ncdu / --exclude /proc --exclude /sys
-```
-
-5. Analyze recent commands for troubleshooting:
+5. Analyze recent commands:
 ```bash
 superman -t 5
+```
+
+6. Execute a command based on description:
+```bash
+superman -e "show current directory contents in a detailed format"
 ```
 
 ## Available Options
@@ -132,17 +106,32 @@ superman -t 5
 - `-c, --cheat`: Generate command cheatsheet
 - `-a, --assistant`: General system administration help
 - `-f, --find`: Discover commands for specific tasks
-- `-t, --trouble`: Analyze recent commands
+- `-t, --trouble [N]`: Analyze last N commands (default: 10)
 - `-p, --plan`: Create task execution plan
+- `-e, --exec`: Execute command based on description
+
+## Safety Features
+
+The command execution mode includes:
+- Comprehensive command blacklist
+- Pattern-based security checks
+- Confirmation system for potentially dangerous commands
+- Real-time command output streaming
+
+## Configuration
+
+The default model is set to `qwen2.5:14b-instruct-q4_1`. To use a different model, modify the `model_name` parameter in `superman.py`:
+
+```python
+def __init__(self, model_name='your-preferred-model', mode='default'):
+```
 
 ## Limitations
 
 - Requires Ollama to be running
 - Response quality depends on the LLM model used
 - May have longer response times with larger models
-
-# Docker
-Install docker, then run the run-superman.sh script.
+- Some system commands are restricted for safety
 
 ## License
 
