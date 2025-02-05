@@ -1,0 +1,7 @@
+#!/bin/bash
+SCRIPT_PATH="$HOME/Coding/smartman/superman.py"
+
+# Just pass everything straight through to the Python script
+python3 "$SCRIPT_PATH" "$@"
+
+rm -f /tmp/superman_current_history

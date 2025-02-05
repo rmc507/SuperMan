@@ -1,0 +1,4 @@
+
+# add this to your .bashrc file.
+
+alias superman='history | tail -50 > /tmp/superman_current_history && ~/bin/superman'
