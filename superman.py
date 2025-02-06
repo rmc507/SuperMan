@@ -60,13 +60,15 @@ SYSTEM_MESSAGES = {
     When given a description of what needs to be done,
     you should respond with a JSON object containing the command to execute. Format your response as:
     {"command": "the_command_to_execute"}
-    Only respond with the JSON object, no other text.'''
+    Only respond with the JSON object, no other text.
+    Assume that the command should be ran in the current directory, unless other specified.'''
 }
 
 def generate_confirmation_code() -> str:
     """Generate a random 5-character string of letters and numbers"""
-    characters = string.ascii_letters + string.digits
-    return ''.join(random.choice(characters) for _ in range(5))
+    #characters = string.ascii_letters + string.digits
+    #return ''.join(random.choice(characters) for _ in range(5))
+    return 'Allow'
 
 
 
@@ -311,7 +313,7 @@ def get_recent_commands(num_commands):
         return []
 
 class SuperMan:  # command-r:35b-08-2024-q2_K        hf.co/OzgurEnt/OZGURLUK-GPT-LinuxGeneral:F16     mistral-nemo
-    def __init__(self, model_name='qwen2.5:14b-instruct-q4_1', mode='default'):
+    def __init__(self, model_name='llama3.1:8b-instruct-q4_0', mode='default'):
         self.model = model_name
         self.system_message = SYSTEM_MESSAGES[mode]
 
@@ -398,8 +400,6 @@ def main():
                         success, output = execute_command(command)
                         if success:
                             print("\nCommand executed successfully!")
-                            print("Output:")
-                            print(output)
                         else:
                             print("\nCommand execution failed:")
                             print(output)
