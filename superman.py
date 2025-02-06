@@ -9,6 +9,14 @@ import shlex
 import random
 import string
 
+
+
+# color
+YELLOW = '\033[93m'
+GREEN = '\033[92m'
+RESET = '\033[0m'
+RED = '\033[91m'
+
 SYSTEM_MESSAGES = {
     'default': '''
     Your purpose it to take a bash command from the user, and interpret their question to the best of your ability. Do not output any warnings or notes. If no question is provided, output a summary of what that command is capable of
@@ -58,10 +66,16 @@ SYSTEM_MESSAGES = {
     'exec': '''
     You are a command execution assistant. Only execute commands that are safe.
     When given a description of what needs to be done,
-    you should respond with a JSON object containing the command to execute. Format your response as:
-    {"command": "the_command_to_execute"}
+    you should respond with a JSON object containing an array of commands to execute in sequence. Format your response as:
+    {
+        "commands": [
+            "command1",
+            "command2",
+            "command3"
+        ]
+    }
     Only respond with the JSON object, no other text.
-    Assume that the command should be ran in the current directory, unless other specified.'''
+    Assume that the commands should be run in the current directory, unless otherwise specified.'''
 }
 
 def generate_confirmation_code() -> str:
@@ -228,32 +242,40 @@ def is_command_safe(command: str) -> tuple[bool, str, bool]:
     # If command passes all checks and isn't blacklisted
     return True, "Command is safe", False
 
-def execute_command(command: str) -> tuple[bool, str]:
+def execute_commands(commands: list) -> tuple[bool, str]:
     """
-    Execute a command with confirmation for blacklisted or dangerous patterns
-    Returns a tuple of (success, output/error_message)
+    Execute a sequence of commands using bash -c with real-time output streaming
+    and security checks
     """
-    is_safe, reason, requires_confirmation = is_command_safe(command)
+    # First, collect all dangerous commands
+    dangerous_commands = []
+    for command in commands:
+        is_safe, reason, requires_confirmation = is_command_safe(command)
+        if requires_confirmation or not is_safe:
+            dangerous_commands.append((command, reason))
 
+    # If there are any dangerous commands, show them all and ask for confirmation once
+    if dangerous_commands:
+        print(f"{YELLOW}\n⚠️  WARNING: The following commands require confirmation:{RESET}")
+        for cmd, reason in dangerous_commands:
+            print(f"{YELLOW}  • Command: '{cmd}'{RESET}")
+            print(f"{YELLOW}    Reason: {reason}{RESET}")
+
+        confirmation_code = generate_confirmation_code()
+        print(f"{RED}\nTo proceed with ALL commands, please type this confirmation code: {confirmation_code}{RESET}")
+
+        user_input = input(f"{GREEN}Confirmation code: {RESET}")
+        if user_input.strip() != confirmation_code:
+            return False, f"{RED}Confirmation code incorrect. Command sequence cancelled.{RESET}"
+
+        print(f"{GREEN}\nConfirmation code correct. Executing command sequence...{RESET}")
+
+    # If confirmation passed (or wasn't needed), execute all commands
     try:
-        if requires_confirmation or not is_safe:  # Changed to handle both cases
-            # Generate and display confirmation code
-            confirmation_code = generate_confirmation_code()
-            print("\n⚠️  WARNING: This command requires confirmation!")
-            print(f"Reason: {reason}")
-            print(f"\nTo proceed, please type this confirmation code: {confirmation_code}")
+        combined_command = ' && '.join(commands)
 
-            user_input = input("Confirmation code: ")
-
-            if user_input.strip() != confirmation_code:
-                return False, "Confirmation code incorrect. Command execution cancelled."
-
-            print("\nConfirmation code correct. Executing command...")
-
-        # Execute command with real-time output
         process = subprocess.Popen(
-            command,
-            shell=True,
+            ['bash', '-c', combined_command],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -262,30 +284,28 @@ def execute_command(command: str) -> tuple[bool, str]:
         )
 
         output = []
-        # Stream stdout in real-time
         while True:
             line = process.stdout.readline()
             if line:
-                print(line, end='', flush=True)
+                print(f"{GREEN}{line}{RESET}", end='', flush=True)
                 output.append(line)
             if not line and process.poll() is not None:
                 break
 
-        # Get any remaining stderr
         stderr = process.stderr.read()
         if stderr:
-            print(stderr, end='', flush=True)
+            print(f"{GREEN}{stderr}{RESET}", end='', flush=True)
             output.append(stderr)
 
         if process.returncode == 0:
             return True, ''.join(output)
         else:
-            return False, f"Command failed: {''.join(output)}"
+            return False, f"{RED}Command sequence failed: {''.join(output)}{RESET}"
 
     except subprocess.TimeoutExpired:
-        return False, "Command timed out after 10 seconds"
+        return False, f"{RED}Command sequence timed out{RESET}"
     except Exception as e:
-        return False, f"Error executing command: {str(e)}"
+        return False, f"Error executing command sequence: {str(e)}"
 
 def get_recent_commands(num_commands):
     """Get the specified number of most recent shell commands."""
@@ -313,7 +333,7 @@ def get_recent_commands(num_commands):
         return []
 
 class SuperMan:  # command-r:35b-08-2024-q2_K        hf.co/OzgurEnt/OZGURLUK-GPT-LinuxGeneral:F16     mistral-nemo
-    def __init__(self, model_name='llama3.1:8b-instruct-q4_0', mode='default'):
+    def __init__(self, model_name='command-r:35b-08-2024-q2_K', mode='default'):
         self.model = model_name
         self.system_message = SYSTEM_MESSAGES[mode]
 
@@ -341,7 +361,7 @@ class SuperMan:  # command-r:35b-08-2024-q2_K        hf.co/OzgurEnt/OZGURLUK-GPT
 
                 if 'message' in chunk and 'content' in chunk['message']:
                     content = chunk['message']['content']
-                    print(content, end='', flush=True)
+                    print(f"{YELLOW}{content}{RESET}", end='', flush=True)
                     full_response += content
 
             return full_response
@@ -384,29 +404,29 @@ def main():
         suman.set_mode('trouble')
         suman.generate_response(prompt)
     elif args.exec:
-            suman.set_mode('exec')
-            response = suman.generate_response(f"Create a command that would: {args.exec}")
-            try:
-                # Extract the command from the response
-                import re
-                # Try to find JSON-like structure in the response
-                json_match = re.search(r'\{.*\}', response)
-                if json_match:
-                    command_data = json.loads(json_match.group())
-                    if "command" in command_data:
-                        command = command_data["command"]
-                        # Ask for confirmation
+        suman.set_mode('exec')
+        response = suman.generate_response(f"Create a command that would: {args.exec}")  # Keep streaming
+        print()  # Add a newline after the streamed response
+        try:
+            # Now parse the complete response that was returned
+            command_data = json.loads(response)  # Parse the complete response
+            if "commands" in command_data:
+                commands = command_data["commands"]
+                print(f"{GREEN}\nExecuting command sequence:{RESET}")
+                for cmd in commands:
+                    print(f"{YELLOW}  → {cmd}{RESET}")
+                print()
 
-                        success, output = execute_command(command)
-                        if success:
-                            print("\nCommand executed successfully!")
-                        else:
-                            print("\nCommand execution failed:")
-                            print(output)
-                        return
-                print("\nCouldn't parse response as a command.\n")
-            except (json.JSONDecodeError, AttributeError):
-                print("\nFailed to parse response as JSON.\n")
+                success, output = execute_commands(commands)
+                if success:
+                    print(f"{GREEN}\nCommand sequence executed successfully!{RESET}")
+                else:
+                    print(f"{RED}\nCommand sequence execution failed:{RESET}")
+                    print(output)
+                return
+            print(f"{RED}\nCouldn't parse response as a command sequence.\n{RESET}")
+        except json.JSONDecodeError as e:
+            print(f"{RED}\nFailed to parse response as JSON: {e}\n{RESET}")
     else:
         # Set prompt based on arguments
         if args.summarize:
